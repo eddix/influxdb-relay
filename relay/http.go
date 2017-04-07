@@ -114,9 +114,9 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	if r.URL.Path == "/ping" && (r.Method == "GET" || r.Method == "HEAD") {
-			w.Header().Add("X-InfluxDB-Version", "relay")
-			w.WriteHeader(http.StatusNoContent)
-			return
+		w.Header().Add("X-InfluxDB-Version", "relay")
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 
 	if r.URL.Path != "/write" {
@@ -395,6 +395,8 @@ func newHTTPBackend(cfg *HTTPOutputConfig) (*httpBackend, error) {
 }
 
 var ErrBufferFull = errors.New("retry buffer full")
+var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
+var ErrBatchIsNil = errors.New("batch is nil")
 
 var bufPool = sync.Pool{New: func() interface{} { return new(bytes.Buffer) }}
 

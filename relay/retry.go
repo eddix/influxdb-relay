@@ -3,13 +3,14 @@ package relay
 import (
 	"bytes"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"log"
 )
 
 const (
 	retryInitial    = 500 * time.Millisecond
-	retryMultiplier = 2
+	retryMultiplier = 4
 )
 
 type Operation func() error
@@ -48,23 +49,26 @@ func newRetryBuffer(size, batch int, max time.Duration, p poster) *retryBuffer {
 }
 
 func (r *retryBuffer) post(buf []byte, query string, auth string) (*responseData, error) {
-	if atomic.LoadInt32(&r.buffering) == 0 {
-		resp, err := r.p.post(buf, query, auth)
-		// TODO A 5xx caused by the point data could cause the relay to buffer forever
-		if err == nil && resp.StatusCode/100 != 5 {
-			return resp, err
-		}
-		atomic.StoreInt32(&r.buffering, 1)
-	}
+	//if atomic.LoadInt32(&r.buffering) == 0 {
+	//	resp, err := r.p.post(buf, query, auth)
+	//	// TODO A 5xx caused by the point data could cause the relay to buffer forever
+	//	if err == nil && resp.StatusCode/100 != 5 {
+	//		return resp, err
+	//	}
+	//	atomic.StoreInt32(&r.buffering, 1)
+	//}
 
 	// already buffering or failed request
-	batch, err := r.list.add(buf, query, auth)
+	buf1 := make([]byte, len(buf))
+	copy(buf1, buf)
+	_, err := r.list.add(buf1, query, auth)
 	if err != nil {
 		return nil, err
 	}
 
-	batch.wg.Wait()
-	return batch.resp, nil
+	return &responseData{
+		StatusCode: 204,
+	}, nil
 }
 
 func (r *retryBuffer) run() {
@@ -82,16 +86,17 @@ func (r *retryBuffer) run() {
 			resp, err := r.p.post(buf.Bytes(), batch.query, batch.auth)
 			if err == nil && resp.StatusCode/100 != 5 {
 				batch.resp = resp
-				atomic.StoreInt32(&r.buffering, 0)
-				batch.wg.Done()
+				log.Printf("Write finish with %d. query:%s, len:%d", resp.StatusCode, batch.query, len(batch.bufs))
 				break
 			}
 
-			if interval != r.maxInterval {
+			if interval >= r.maxInterval {
+				log.Printf("A batched data exceeded max retries. {query:%s, len:%d}", batch.query, len(batch.bufs))
+				break
+			}
+
+			if interval < r.maxInterval {
 				interval *= r.multiplier
-				if interval > r.maxInterval {
-					interval = r.maxInterval
-				}
 			}
 
 			time.Sleep(interval)
@@ -106,7 +111,6 @@ type batch struct {
 	size  int
 	full  bool
 
-	wg   sync.WaitGroup
 	resp *responseData
 
 	next *batch
@@ -118,7 +122,6 @@ func newBatch(buf []byte, query string, auth string) *batch {
 	b.size = len(buf)
 	b.query = query
 	b.auth = auth
-	b.wg.Add(1)
 	return b
 }
 
