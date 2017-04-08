@@ -45,9 +45,19 @@ type HTTPOutputConfig struct {
 	// Maximum batch size in KB (Default 512)
 	MaxBatchKB int `toml:"max-batch-kb"`
 
-	// Maximum delay between retry attempts.
+	// InitialInterval
+	InitialInterval string `toml:"initial-interval"`
+
+	// IntervalMultiplier
+	IntervalMultiplier int `toml:"interval-multiplier"`
+
+	// SkipDelayInterval
 	// The format used is the same seen in time.ParseDuration (Default 10s)
-	MaxDelayInterval string `toml:"max-delay-interval"`
+	SkipDelayInterval string `toml:"skip-delay-interval"`
+
+	//// Maximum delay between retry attempts.
+	//// The format used is the same seen in time.ParseDuration (Default 10s)
+	//MaxDelayInterval string `toml:"max-delay-interval"`
 
 	// Skip TLS verification in order to use self signed certificate.
 	// WARNING: It's insecure. Use it only for developing and don't use in production.

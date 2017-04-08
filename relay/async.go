@@ -8,11 +8,6 @@ import (
 	"log"
 )
 
-const (
-	retryInitial    = 500 * time.Millisecond
-	retryMultiplier = 4
-)
-
 type Operation func() error
 
 // Buffers and retries operations, if the buffer is full operations are dropped.
@@ -22,9 +17,9 @@ type Operation func() error
 type retryBuffer struct {
 	buffering int32
 
-	initialInterval time.Duration
-	multiplier      time.Duration
-	maxInterval     time.Duration
+	multiplier            int
+	initialInterval       time.Duration
+	skipDelayInterval     time.Duration
 
 	maxBuffered int
 	maxBatch    int
@@ -34,11 +29,11 @@ type retryBuffer struct {
 	p poster
 }
 
-func newRetryBuffer(size, batch int, max time.Duration, p poster) *retryBuffer {
+func newRetryBuffer(size, batch int, multi int, intvl time.Duration, skip time.Duration, p poster) *retryBuffer {
 	r := &retryBuffer{
-		initialInterval: retryInitial,
-		multiplier:      retryMultiplier,
-		maxInterval:     max,
+		initialInterval: intvl,
+		multiplier:      multi,
+		skipDelayInterval:     skip,
 		maxBuffered:     size,
 		maxBatch:        batch,
 		list:            newBufferList(size, batch),
@@ -49,16 +44,6 @@ func newRetryBuffer(size, batch int, max time.Duration, p poster) *retryBuffer {
 }
 
 func (r *retryBuffer) post(buf []byte, query string, auth string) (*responseData, error) {
-	//if atomic.LoadInt32(&r.buffering) == 0 {
-	//	resp, err := r.p.post(buf, query, auth)
-	//	// TODO A 5xx caused by the point data could cause the relay to buffer forever
-	//	if err == nil && resp.StatusCode/100 != 5 {
-	//		return resp, err
-	//	}
-	//	atomic.StoreInt32(&r.buffering, 1)
-	//}
-
-	// already buffering or failed request
 	buf1 := make([]byte, len(buf))
 	copy(buf1, buf)
 	_, err := r.list.add(buf1, query, auth)
@@ -86,17 +71,17 @@ func (r *retryBuffer) run() {
 			resp, err := r.p.post(buf.Bytes(), batch.query, batch.auth)
 			if err == nil && resp.StatusCode/100 != 5 {
 				batch.resp = resp
-				log.Printf("Write finish with %d. query:%s, len:%d", resp.StatusCode, batch.query, len(batch.bufs))
+				Log.Warning("Write finish with %d. query:%s, len:%d", resp.StatusCode, batch.query, len(batch.bufs))
 				break
 			}
 
-			if interval >= r.maxInterval {
+			if interval >= r.skipDelayInterval {
 				log.Printf("A batched data exceeded max retries. {query:%s, len:%d}", batch.query, len(batch.bufs))
 				break
 			}
 
-			if interval < r.maxInterval {
-				interval *= r.multiplier
+			if interval < r.skipDelayInterval {
+				interval *= time.Duration(r.multiplier)
 			}
 
 			time.Sleep(interval)

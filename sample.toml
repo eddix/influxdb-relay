@@ -3,10 +3,27 @@
 [[http]]
 name = "example-http"
 bind-addr = "127.0.0.1:9096"
-output = [
-    { name="local1", location = "http://127.0.0.1:8086/write" },
-    { name="local2", location = "http://127.0.0.1:7086/write" },
-]
+
+  [[http.output]]
+    name="local1"
+    location = "http://127.0.0.1:8086/write"
+    async = true
+    # Follow configurations only works under async mode
+    buffer-size-mb = 100
+    max-batch-kb = 50
+    initial-interval = "500ms"
+    interval-multiplier = 3
+    skip-delay-interval = "60s"
+
+  [[http.output]]
+    name="local2"
+    location = "http://127.0.0.1:7086/write"
+    async = false
+    buffer-size-mb = 100
+    max-batch-kb = 50
+    initial-interval = "500ms"
+    interval-multiplier = 3
+    skip-delay-interval = "60s"
 
 [[udp]]
 name = "example-udp"

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -36,7 +35,9 @@ type HTTP struct {
 
 const (
 	DefaultHTTPTimeout      = 10 * time.Second
-	DefaultMaxDelayInterval = 10 * time.Second
+	DefaultInitialInterval = 500 * time.Millisecond
+	DefaultIntervalMultiplier = 3
+	DefaultSkipDelayInterval = 120 * time.Second
 	DefaultBatchSizeKB      = 512
 
 	KB = 1024
@@ -96,7 +97,7 @@ func (h *HTTP) Run() error {
 
 	h.l = l
 
-	log.Printf("Starting %s relay %q on %v", strings.ToUpper(h.schema), h.Name(), h.addr)
+	Log.Notice("Starting %s relay %q on %v", strings.ToUpper(h.schema), h.Name(), h.addr)
 
 	err = http.Serve(l, h)
 	if atomic.LoadInt64(&h.closing) != 0 {
@@ -211,11 +212,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			resp, err := b.post(outBytes, query, authHeader)
 			if err != nil {
-				log.Printf("Problem posting to relay %q backend %q: %v", h.Name(), b.name, err)
+				Log.Warning("Problem posting to relay %q backend %q: %v", h.Name(), b.name, err)
 			} else {
-				if resp.StatusCode/100 == 5 {
-					log.Printf("5xx response for relay %q backend %q: %v", h.Name(), b.name, resp.StatusCode)
-				}
 				responses <- resp
 			}
 		}()
@@ -371,13 +369,27 @@ func newHTTPBackend(cfg *HTTPOutputConfig) (*httpBackend, error) {
 	// If configured, create a retryBuffer per backend.
 	// This way we serialize retries against each backend.
 	if cfg.BufferSizeMB > 0 {
-		max := DefaultMaxDelayInterval
-		if cfg.MaxDelayInterval != "" {
-			m, err := time.ParseDuration(cfg.MaxDelayInterval)
+		intvl := DefaultInitialInterval
+		if cfg.InitialInterval != "" {
+			i, err := time.ParseDuration(cfg.InitialInterval)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing initial interval %v", err)
+			}
+			intvl = i
+		}
+
+		skip := DefaultSkipDelayInterval
+		if cfg.SkipDelayInterval != "" {
+			m, err := time.ParseDuration(cfg.SkipDelayInterval)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing max retry time %v", err)
 			}
-			max = m
+			skip = m
+		}
+
+		multi := DefaultIntervalMultiplier
+		if cfg.IntervalMultiplier > 0 {
+			multi = cfg.IntervalMultiplier
 		}
 
 		batch := DefaultBatchSizeKB * KB
@@ -385,7 +397,7 @@ func newHTTPBackend(cfg *HTTPOutputConfig) (*httpBackend, error) {
 			batch = cfg.MaxBatchKB * KB
 		}
 
-		p = newRetryBuffer(cfg.BufferSizeMB*MB, batch, max, p)
+		p = newRetryBuffer(cfg.BufferSizeMB*MB, batch, multi, intvl, skip, p)
 	}
 
 	return &httpBackend{
@@ -395,8 +407,6 @@ func newHTTPBackend(cfg *HTTPOutputConfig) (*httpBackend, error) {
 }
 
 var ErrBufferFull = errors.New("retry buffer full")
-var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
-var ErrBatchIsNil = errors.New("batch is nil")
 
 var bufPool = sync.Pool{New: func() interface{} { return new(bytes.Buffer) }}
 

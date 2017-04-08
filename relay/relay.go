@@ -2,13 +2,14 @@ package relay
 
 import (
 	"fmt"
-	"log"
 	"sync"
 )
 
 type Service struct {
 	relays map[string]Relay
 }
+
+var Log *Logger
 
 func New(config Config) (*Service, error) {
 	s := new(Service)
@@ -36,6 +37,12 @@ func New(config Config) (*Service, error) {
 		s.relays[u.Name()] = u
 	}
 
+	var err error
+	Log, err = NewLogger("influxdb-relay")
+	if err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
@@ -49,7 +56,7 @@ func (s *Service) Run() {
 			defer wg.Done()
 
 			if err := relay.Run(); err != nil {
-				log.Printf("Error running relay %q: %v", relay.Name(), err)
+				Log.Fatal("Error running relay %q: %v", relay.Name(), err)
 			}
 		}()
 	}

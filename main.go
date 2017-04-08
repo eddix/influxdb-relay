@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/influxdata/influxdb-relay/relay"
+	"github.com/eddix/influxdb-relay/relay"
 )
 
 var (
@@ -40,7 +40,5 @@ func main() {
 		<-sigChan
 		r.Stop()
 	}()
-
-	log.Println("starting relays...")
 	r.Run()
 }
